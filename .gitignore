@@ -1,0 +1,7 @@
+*.pyc
+runs/
+*.so
+data/*/images
+lightning_logs/
+sparseconvnet
+.idea/
