@@ -5,6 +5,7 @@ from model.InpaintSAGenerator import InpaintSAGenerator
 from model.InpaintSADiscriminator import InpaintSADiscriminator
 from dataset import InpaintDataset
 from util.loss import ReconstructionLoss
+from util.transforms import ToNumpyRGB256
 
 
 torch.backends.cudnn.benchmark = True
@@ -89,6 +90,8 @@ class DeepFillV2(pl.LightningModule):
         refined = []
         masked = []
         completed = []
+        torgb = ToNumpyRGB256(-1, 1)
+
         with torch.no_grad():
             for t, batch in enumerate(self.visualization_dataloader):
                 batch['image'] = batch['image'].cuda()
@@ -101,11 +104,12 @@ class DeepFillV2(pl.LightningModule):
                 masked_image = masked_image.cpu().numpy()
 
                 for j in range(batch['image'].size(0)):
-                    images.append(((np.transpose(batch['image'][j].cpu().numpy(), axes=[1, 2, 0]) * (0.229, 0.224, 0.225) + (0.485, 0.456, 0.406)) * 255).astype(np.uint8))
-                    coarse.append(((np.transpose(coarse_image[j], axes=[1, 2, 0]) * (0.229, 0.224, 0.225) + (0.485, 0.456, 0.406)) * 255).astype(np.uint8))
-                    refined.append(((np.transpose(refined_image[j], axes=[1, 2, 0]) * (0.229, 0.224, 0.225) + (0.485, 0.456, 0.406)) * 255).astype(np.uint8))
-                    masked.append(((np.transpose(masked_image[j], axes=[1, 2, 0]) * (0.229, 0.224, 0.225) + (0.485, 0.456, 0.406)) * 255).astype(np.uint8))
-                    completed.append(((np.transpose(completed_image[j], axes=[1, 2, 0]) * (0.229, 0.224, 0.225) + (0.485, 0.456, 0.406)) * 255).astype(np.uint8))
+                    images.append(torgb(batch['image'][j].cpu().numpy()))
+                    coarse.append(torgb(coarse_image[j]))
+                    refined.append(torgb(refined_image[j]))
+                    masked.append(torgb(masked_image[j]))
+                    completed.append(torgb(completed_image[j]))
+
             visualization = np.hstack([np.vstack(masked), np.vstack(coarse), np.vstack(refined), np.vstack(completed), np.vstack(images)])
             self.logger.log_image(self.global_step, visualization)
 

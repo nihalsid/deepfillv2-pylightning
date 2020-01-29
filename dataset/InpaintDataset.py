@@ -5,6 +5,7 @@ from util import constants
 from PIL import Image
 import torch
 import random
+from util.transforms import NormalizeRange
 
 
 class InpaintDataset(Dataset):
@@ -53,7 +54,8 @@ class InpaintDataset(Dataset):
             transforms.RandomResizedCrop(self.image_size, scale=(1.0, 1.25), ratio=(1, 1), interpolation=2),
             transforms.Resize(self.image_size),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            NormalizeRange(minval=-1, maxval=1)
+            #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ]
         composed_transform = transforms.Compose(transform_list)
         return composed_transform(image)
@@ -62,7 +64,8 @@ class InpaintDataset(Dataset):
         transform_list = [
             transforms.Resize(self.image_size),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            NormalizeRange(minval=-1, maxval=1)
+            #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ]
         composed_transform = transforms.Compose(transform_list)
         return composed_transform(image)
@@ -80,7 +83,7 @@ if __name__ == '__main__':
     bbox_randomness = 0.25
     bbox_margin = 32
     bbox_max_num = 2
-    dataset = InpaintDataset(root_folder, split, image_size, bbox_shape, bbox_randomness, bbox_margin, bbox_max_num)
+    dataset = InpaintDataset(root_folder, split, image_size, bbox_shape, bbox_randomness, bbox_margin, bbox_max_num, False)
     dataloader = DataLoader(dataset, batch_size=2, shuffle=True, num_workers=0)
 
     for i, sample in enumerate(dataloader, 0):
