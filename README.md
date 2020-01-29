@@ -1,6 +1,6 @@
 # DeepFillv2 Pytorch Lightning
 
-lean minimal implementation of  [<i> Free-Form Image Inpainting with Gated Convolutions </i>](http://jiahuiyu.com/deepfill2/) in pytorch lightning. Inspired from [pytorch implementation by @avalonstrel](https://github.com/avalonstrel/GatedConvolution_pytorch).
+Clean minimal implementation of  [<i> Free-Form Image Inpainting with Gated Convolutions </i>](http://jiahuiyu.com/deepfill2/) in pytorch lightning. Inspired from [pytorch implementation by @avalonstrel](https://github.com/avalonstrel/GatedConvolution_pytorch).
 
 The models lack support for guidance masks, but can be very easily added. Instead of contexual attention, uses self attention GAN. The dataset class lacks support for generating freeform masks.
 
