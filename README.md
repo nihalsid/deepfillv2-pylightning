@@ -72,4 +72,4 @@ For an example see the `matterport` folder in `data` directory.
 
 ## Acknowledgements
 
-[Official repository]((http://jiahuiyu.com/deepfill2/)) for DeepFillv2 and [pytorch implementation](https://github.com/avalonstrel/GatedConvolution_pytorch) by @avalonstrel.
+[Official repository](http://jiahuiyu.com/deepfill2/) for DeepFillv2 and [pytorch implementation](https://github.com/avalonstrel/GatedConvolution_pytorch) by @avalonstrel.
