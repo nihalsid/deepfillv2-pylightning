@@ -5,7 +5,7 @@ from util import constants
 from PIL import Image
 import torch
 import random
-from util.transforms import NormalizeRange
+from util.transforms import NormalizeRange, ToNumpyRGB256
 
 
 class InpaintDataset(Dataset):
@@ -55,7 +55,6 @@ class InpaintDataset(Dataset):
             transforms.Resize(self.image_size),
             transforms.ToTensor(),
             NormalizeRange(minval=-1, maxval=1)
-            #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ]
         composed_transform = transforms.Compose(transform_list)
         return composed_transform(image)
@@ -65,32 +64,73 @@ class InpaintDataset(Dataset):
             transforms.Resize(self.image_size),
             transforms.ToTensor(),
             NormalizeRange(minval=-1, maxval=1)
-            #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ]
         composed_transform = transforms.Compose(transform_list)
         return composed_transform(image)
 
 
-if __name__ == '__main__':
+class FixedInpaintDataset(Dataset):
+
+    def __init__(self, root_folder, split, image_size, box_collection_idx):
+        self.root_folder = root_folder
+        self.image_size = image_size
+        with open(os.path.join(constants.DATASET_ROOT, self.root_folder, constants.SPLITS_FOLDER, split + ".txt"), "r") as fptr:
+            self.files = [x.strip() for x in fptr.readlines() if x.strip() != ""]
+        self.box_collection_idx = box_collection_idx
+
+    def __len__(self):
+        return len(self.files) * len(self.get_test_masks())
+
+    def __getitem__(self, index):
+        file = self.files[index // len(self.get_test_masks())]
+        image = Image.open(os.path.join(constants.DATASET_ROOT, self.root_folder, constants.IMAGES_FOLDER, file + ".jpg"))
+        image_tensor = self.transform(image)
+        mask_bounds = self.get_test_masks()
+        mask = self.generate_mask(*mask_bounds[index % len(mask_bounds)])
+        return {'name': f'{file}_{index % len(mask_bounds):02d}', 'image': image_tensor, 'mask': mask}
+
+    def generate_mask(self, y_min, x_min, bbox_height, bbox_width):
+        mask = torch.zeros((1, self.image_size, self.image_size)).float()
+        mask[0, y_min:y_min + bbox_height, x_min:x_min + bbox_width] = 1
+        return mask
+
+    def get_test_masks(self):
+        box_collections = [
+            [(152, 41, 48, 43), (171, 114, 49, 45), (121, 91, 53, 37), (109, 62, 52, 58), (141, 150, 47, 39), (39, 73, 39, 53), (149, 167, 48, 38), (155, 46, 43, 38), (84, 64, 46, 51)],
+        ]
+        return box_collections[self.box_collection_idx]
+
+    def transform(self, image):
+        transform_list = [
+            transforms.Resize(self.image_size),
+            transforms.ToTensor(),
+            NormalizeRange(minval=-1, maxval=1)
+        ]
+        composed_transform = transforms.Compose(transform_list)
+        return composed_transform(image)
+
+
+def test_inpaint_dataset():
     from torch.utils.data import DataLoader
     import matplotlib.pyplot as plt
     import numpy as np
 
-    root_folder = 'matterport'
-    split = 'train'
-    image_size = 256
-    bbox_shape = 48
-    bbox_randomness = 0.25
-    bbox_margin = 32
-    bbox_max_num = 2
-    dataset = InpaintDataset(root_folder, split, image_size, bbox_shape, bbox_randomness, bbox_margin, bbox_max_num, False)
+    _root_folder = 'matterport'
+    _split = 'train'
+    _image_size = 256
+    _bbox_shape = 48
+    _bbox_randomness = 0.25
+    _bbox_margin = 32
+    _bbox_max_num = 2
+    dataset = InpaintDataset(_root_folder, _split, _image_size, _bbox_shape, _bbox_randomness, _bbox_margin, _bbox_max_num, False)
     dataloader = DataLoader(dataset, batch_size=2, shuffle=True, num_workers=0)
+    torgb = ToNumpyRGB256(-1, 1)
 
     for i, sample in enumerate(dataloader, 0):
         for j in range(sample['image'].size()[0]):
-            image = sample['image'].numpy()[j]
+            image = sample['image'].numpy()
             mask = sample['mask'].squeeze().numpy()[j]
-            image_unnormalized = ((np.transpose(image, axes=[1, 2, 0]) * (0.229, 0.224, 0.225) + (0.485, 0.456, 0.406)) * 255).astype(np.uint8)
+            image_unnormalized = torgb(image[j])
             plt.figure()
             plt.title('display')
             plt.subplot(211)
@@ -98,3 +138,33 @@ if __name__ == '__main__':
             plt.subplot(212)
             plt.imshow(mask)
             plt.show(block=True)
+
+
+def test_fixed_inpaint_dataset():
+    from torch.utils.data import DataLoader
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    _root_folder = 'matterport'
+    _split = 'train'
+    _image_size = 256
+    dataset = FixedInpaintDataset(_root_folder, "vis_0", _image_size, 0)
+    dataloader = DataLoader(dataset, batch_size=2, shuffle=False, num_workers=0)
+    torgb = ToNumpyRGB256(-1, 1)
+
+    for i, sample in enumerate(dataloader, 0):
+        for j in range(sample['image'].size()[0]):
+            image = sample['image'].numpy()
+            mask = sample['mask'].squeeze().numpy()[j]
+            image_unnormalized = torgb(image[j])
+            plt.figure()
+            plt.title('display')
+            plt.subplot(211)
+            plt.imshow(image_unnormalized)
+            plt.subplot(212)
+            plt.imshow(mask)
+            plt.show(block=True)
+
+
+if __name__ == '__main__':
+    test_fixed_inpaint_dataset()

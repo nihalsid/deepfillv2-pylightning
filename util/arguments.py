@@ -12,6 +12,7 @@ def parse_arguments():
     parser.add_argument('--bbox_randomness', type=float, default=0.25, help='variation in box size')
     parser.add_argument('--bbox_margin', type=int, default=32, help='margin from boundaries for box')
     parser.add_argument('--bbox_max_num', type=int, default=2, help='max num of boxes')
+    parser.add_argument('--fixed_bbox_idx', type=int, default=0, help='boxes to be used for testing')
     parser.add_argument('--vis_dataset', type=str, default='vis_0', help='images to be visualized after each epoch')
     parser.add_argument('--overfit', default=False, action='store_true')
 
@@ -24,8 +25,15 @@ def parse_arguments():
     parser.add_argument('--l1_c_nh', type=float, default=1.2, help='reconstruction coarse weight for non-holes')
     parser.add_argument('--l1_r_h', type=float, default=1.2, help='reconstruction coarse weight for holes')
     parser.add_argument('--l1_r_nh', type=float, default=1.2, help='reconstruction coarse weight for non-holes')
-    parser.add_argument('--gen_loss_alpha', type=float, default=0.005, help='reconstruction coarse weight for non-holes')
-    parser.add_argument('--disc_loss_alpha', type=float, default=1., help='reconstruction coarse weight for non-holes')
+    parser.add_argument('--gen_loss_alpha', type=float, default=0.005, help='generator loss lambda')
+    parser.add_argument('--disc_loss_alpha', type=float, default=1., help='discriminator loss lambda')
+    parser.add_argument('--refined_as_discriminator_input', default=False, action='store_true')
+    parser.add_argument('--gen_type', type=str, choices=['GSAGAN', 'UNet'], default='GSAGAN')
+    parser.add_argument('--unet_num_downs', type=int, default=8)
+    parser.add_argument('--no_leaky_relu', default=False, action='store_true')
+    parser.add_argument('--no_gated_conv', default=False, action='store_true')
+    parser.add_argument('--no_attention', default=False, action='store_true')
+    parser.add_argument('--no_intermediate_input_filling', default=False, action='store_true')
 
     # other
     parser.add_argument('--batch_size', type=int, default=8, help='batch size')

@@ -1,7 +1,6 @@
 from pytorch_lightning.logging import LightningLoggerBase, rank_zero_only
 from torch.utils.tensorboard import SummaryWriter
 import os
-import torch
 
 
 class NestedFolderTensorboardLogger(LightningLoggerBase):
@@ -67,6 +66,41 @@ class NestedFolderTensorboardLogger(LightningLoggerBase):
         self.experiment_generator._get_file_writer().flush()
         self.experiment_discriminator._get_file_writer().flush()
         self.experiment_root._get_file_writer().flush()
+
+    @rank_zero_only
+    def finalize(self, status):
+        self.save()
+
+    @property
+    def version(self):
+        return self._name
+
+    @property
+    def name(self):
+        return self._name
+
+
+class NullLogger(LightningLoggerBase):
+
+    def __init__(self):
+        super().__init__()
+        self._name = 'null'
+
+    @rank_zero_only
+    def log_hyperparams(self, params):
+        return
+
+    @rank_zero_only
+    def log_metrics(self, metrics, step_num):
+        return
+
+    @rank_zero_only
+    def log_image(self, step, visualization):
+        self.experiment_root.add_image('visualization', visualization, step, dataformats='HWC')
+
+    @rank_zero_only
+    def save(self):
+        return
 
     @rank_zero_only
     def finalize(self, status):

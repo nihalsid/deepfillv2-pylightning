@@ -1,11 +1,15 @@
 import pytorch_lightning as pl
+import os
+from util import constants
+from util.misc import count_parameters
 import torch
 import numpy as np
-from model.InpaintSAGenerator import InpaintSAGenerator
+from model import get_generator
 from model.InpaintSADiscriminator import InpaintSADiscriminator
 from dataset import InpaintDataset
 from util.loss import ReconstructionLoss
 from util.transforms import ToNumpyRGB256
+from PIL import Image
 
 
 torch.backends.cudnn.benchmark = True
@@ -16,12 +20,12 @@ class DeepFillV2(pl.LightningModule):
     def __init__(self, args):
         super(DeepFillV2, self).__init__()
         self.hparams = args
-        self.net_G = InpaintSAGenerator(args.input_nc)
+        self.net_G = get_generator(args)
         self.net_D = InpaintSADiscriminator(args.input_nc)
+        print('#Params Generator: ', f'{count_parameters(self.net_G) / 1e6}M')
+        print('#Params Discriminator: ', f'{count_parameters(self.net_D) / 1e6}M')
         self.recon_loss = ReconstructionLoss(args.l1_c_h, args.l1_c_nh, args.l1_r_h, args.l1_r_nh)
-        self.last_batch = None
-        self.generated_image = None
-        self.generated_image_only_patch = None
+        self.refined_as_discriminator_input = args.refined_as_discriminator_input
         self.visualization_dataloader = self.setup_dataloader_for_visualizations()
 
     def configure_optimizers(self):
@@ -41,6 +45,11 @@ class DeepFillV2(pl.LightningModule):
         dataset = InpaintDataset.InpaintDataset(self.hparams.dataset, "val", self.hparams.image_size, self.hparams.bbox_shape, self.hparams.bbox_randomness, self.hparams.bbox_margin, self.hparams.bbox_max_num, False)
         return torch.utils.data.DataLoader(dataset, batch_size=self.hparams.batch_size, shuffle=False, num_workers=self.hparams.num_workers, drop_last=False)
 
+    @pl.data_loader
+    def test_dataloader(self):
+        dataset = InpaintDataset.FixedInpaintDataset(self.hparams.dataset, self.hparams.vis_dataset, self.hparams.image_size, self.hparams.fixed_bbox_idx)
+        return torch.utils.data.DataLoader(dataset, batch_size=self.hparams.batch_size, shuffle=False, num_workers=self.hparams.num_workers, drop_last=False)
+
     def setup_dataloader_for_visualizations(self):
         dataset = InpaintDataset.InpaintDataset(self.hparams.dataset, self.hparams.vis_dataset, self.hparams.image_size, self.hparams.bbox_shape, self.hparams.bbox_randomness, self.hparams.bbox_margin, self.hparams.bbox_max_num, False)
         return torch.utils.data.DataLoader(dataset, batch_size=self.hparams.batch_size, shuffle=False, num_workers=self.hparams.num_workers, drop_last=False)
@@ -48,15 +57,16 @@ class DeepFillV2(pl.LightningModule):
     def training_step(self, batch, batch_idx, optimizer_idx):
         image = batch['image']
         mask = batch['mask']
-        self.last_batch = batch
         if optimizer_idx == 0:
             # generator training
             coarse_image, refined_image = self.net_G(image, mask)
-            self.generated_image = refined_image
             reconstruction_loss = self.recon_loss(image, coarse_image, refined_image, mask)
             completed_image = refined_image * mask + image * (1 - mask)
-            self.generated_image_only_patch = completed_image
-            d_fake = self.net_D(torch.cat((completed_image, mask), dim=1))
+            if self.refined_as_discriminator_input:
+                discriminator_input = refined_image
+            else:
+                discriminator_input = completed_image
+            d_fake = self.net_D(torch.cat((discriminator_input, mask), dim=1))
             gen_loss = -self.hparams.gen_loss_alpha * torch.mean(d_fake)
             total_loss = gen_loss + reconstruction_loss
             self.logger.log_generator_losses(self.global_step, gen_loss, reconstruction_loss)
@@ -70,7 +80,13 @@ class DeepFillV2(pl.LightningModule):
             }
         if optimizer_idx == 1:
             d_real = self.net_D(torch.cat((image, mask), dim=1))
-            d_fake = self.net_D(torch.cat((self.generated_image_only_patch.detach(), mask), dim=1))
+            coarse_image, refined_image = self.net_G(image, mask)
+            completed_image = refined_image * mask + image * (1 - mask)
+            if self.refined_as_discriminator_input:
+                discriminator_input = refined_image
+            else:
+                discriminator_input = completed_image
+            d_fake = self.net_D(torch.cat((discriminator_input.detach(), mask), dim=1))
             real_loss = torch.mean(torch.nn.functional.relu(1. - d_real))
             fake_loss = torch.mean(torch.nn.functional.relu(1. + d_fake))
             disc_loss = self.hparams.disc_loss_alpha * (real_loss + fake_loss)
@@ -84,6 +100,27 @@ class DeepFillV2(pl.LightningModule):
                 }
             }
 
+    def generate_images(self, image, mask):
+        coarse_image, refined_image = self.net_G(image, mask)
+        completed_image = (refined_image * mask + image * (1 - mask)).cpu().numpy()
+        coarse_image = coarse_image.cpu().numpy()
+        refined_image = refined_image.cpu().numpy()
+        masked_image = image * (1 - mask) + mask
+        masked_image = masked_image.cpu().numpy()
+        return masked_image, coarse_image, refined_image, completed_image
+
+    def test_step(self, batch, batch_idx):
+        torgb = ToNumpyRGB256(-1, 1)
+        with torch.no_grad():
+            masked_image, coarse_image, refined_image, completed_image = self.generate_images(batch['image'], batch['mask'])
+            for j in range(batch['image'].size(0)):
+                visualization = np.hstack([torgb(masked_image[j]), torgb(coarse_image[j]), torgb(refined_image[j]), torgb(completed_image[j]), torgb(batch['image'][j].cpu().numpy())])
+                Image.fromarray(visualization).save(os.path.join(constants.RUNS_FOLDER, self.hparams.dataset, self.hparams.experiment, "visualization", batch["name"][j]+".jpg"))
+        return {'test_loss': torch.FloatTensor([-1.0,])}
+
+    def test_end(self, outputs):
+        return {'test_loss': torch.FloatTensor([-1.0,])}
+
     def on_epoch_end(self):
         images = []
         coarse = []
@@ -96,12 +133,7 @@ class DeepFillV2(pl.LightningModule):
             for t, batch in enumerate(self.visualization_dataloader):
                 batch['image'] = batch['image'].cuda()
                 batch['mask'] = batch['mask'].cuda()
-                coarse_image, refined_image = self.net_G(batch['image'], batch['mask'])
-                completed_image = (refined_image * batch['mask'] + batch['image'] * (1 - batch['mask'])).cpu().numpy()
-                coarse_image = coarse_image.cpu().numpy()
-                refined_image = refined_image.cpu().numpy()
-                masked_image = batch['image'] * (1 - batch['mask']) + batch['mask']
-                masked_image = masked_image.cpu().numpy()
+                masked_image, coarse_image, refined_image, completed_image = self.generate_images(batch['image'], batch['mask'])
 
                 for j in range(batch['image'].size(0)):
                     images.append(torgb(batch['image'][j].cpu().numpy()))
